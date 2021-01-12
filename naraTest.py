@@ -2,9 +2,10 @@ import requests
 import os
 from bs4 import BeautifulSoup
 import wget
+import re
 
 
-# To-do: directory flag, rename images, GUI, duplicate check
+# To-do: rename images, pack .exe, check how wget works with .exe
 
 
 # 0 - node, 1 - image, 2 - dead end
@@ -18,9 +19,20 @@ def typeChecker(naID):
     return 2
 
 
+# main function, chooses a procession method based on type of page based on naID
+def processID(naID, spread, level=6, path=os.getcwd()):
+    nodeType = typeChecker(naID)
+    if nodeType == 0:
+        generateDir(naID, spread, path, level - 1)
+    elif nodeType == 1:
+        downloadImage(naID)
+    else:
+        generateDeadEnd(naID)
+
+
 # generates directory for nodes
 def generateDir(naID, spread, path=os.getcwd(), level=5):
-    print('%d is a node' % naID)
+    template = 'https://catalog.archives.gov/OpaAPI/iapi/v1'
     payload = {'action': 'searchWithin',
                'f.ancestorNaIds': naID,
                'facet': 'true',
@@ -31,14 +43,13 @@ def generateDir(naID, spread, path=os.getcwd(), level=5):
                'rows': spread,
                'sort': 'naIdSort asc',
                'tabType': 'all'}
-    template = 'https://catalog.archives.gov/OpaAPI/iapi/v1'
     getJson = requests.get(template, params=payload).json()
     # get name for directory
     pathNew = os.path.join(path, '%d %s' % (naID, getJson['opaResponse']['searchWithin'][0]['title']))
     try:
         os.mkdir(pathNew)
     except OSError:
-        print("Creation of the directory %s failed, try to delete results from previous run" % pathNew)
+        raise NameError('Wrong Directory')
     else:
         if level == 0:
             return
@@ -54,47 +65,33 @@ def generateDir(naID, spread, path=os.getcwd(), level=5):
 
 # generates text file for dead ends
 def generateDeadEnd(naID):
-    print('%d is a dead end' % naID)
-    payload = {'action': 'contentDetail',
-               'f.ancestorNaIds': naID,
-               'offset': '0',
-               'q': '*:*',
-               'rows': '1',
-               'sort': 'naIdSort asc'}
-    base = 'https://catalog.archives.gov/OpaAPI/iapi/v1'
-    jsonFile = requests.get(base, params=payload).json()
+    base = 'https://catalog.archives.gov/OpaAPI/iapi/v1/id/%d?searchTerm=' % naID
+    jsonFile = requests.get(base).json()
     with open(jsonFile['opaResponse']['@title'] + '.txt', 'w') as file:
-        file.write('No images for %d' % naID)
+        file.write('No images or nodes found for %d' % naID)
     return
 
 
 # to-do: implement renaming of images
 # downloads image in current node's directory
 def downloadImage(naID):
-    print('%d is an image' % naID)
     template = 'https://catalog.archives.gov/OpaAPI/iapi/v1/id/%d?searchTerm=' % naID
     toDownload = requests.get(template).json()
     # different cases for pdf/jpg and jpg-only architectures
     try:
         address = toDownload['opaResponse']['content']['objects']['objects']['object'][0]['file']['@url']
-        # name = toDownload['opaResponse']['@title']
-        image = wget.download(address)
+        name = toDownload['opaResponse']['@title'].replace(' ', '_')
+        name = re.sub(r'\W+', '', name)
+        image = wget.download(address, str(naID) + '.jpg')
     except KeyError:
         address = toDownload['opaResponse']['content']['objects']['objects']['object']['file']['@url']
-        # name = toDownload['opaResponse']['@title']
-        image = wget.download(address)
+        name = toDownload['opaResponse']['@title'].replace(' ', '_')
+        name = re.sub(r'\W+', '', name)
+        image = wget.download(address, str(naID) + '.jpg')
+    with open(str(naID) + ' ' + name + '.txt', 'w') as file:
+        file.write('Image for %s downloaded as %d.jpg' % (name, naID))
     return
 
 
-# main function, chooses a procession method based on type of page based on naID
-def processID(naID, spread, level=6, path=os.getcwd()):
-    nodeType = typeChecker(naID)
-    if nodeType == 0:
-        generateDir(naID, spread, path, level - 1)
-    elif nodeType == 1:
-        downloadImage(naID)
-    else:
-        generateDeadEnd(naID)
-
-
-processID(naID=int(input('Input start ID: ')), spread=int(input('Input node spread: ')))
+if __name__ == "__main__":
+    processID(naID=int(input('Input start ID: ')), spread=int(input('Input node spread: ')))
